@@ -1,0 +1,2 @@
+* text=auto eol=lf
+*.csv text eol=lf working-tree-encoding=UTF-8
