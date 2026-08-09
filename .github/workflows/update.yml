@@ -1,0 +1,39 @@
+name: 株価を更新
+
+on:
+  schedule:
+    # 平日 18:00 JST（= 09:00 UTC）。東証の終値確定後に走らせる。
+    - cron: "0 9 * * 1-5"
+  workflow_dispatch: # 手動実行用
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: ページを生成
+        env:
+          # Googleスプレッドシートを使う場合はリポジトリの Variables に設定する。
+          # 未設定なら watchlist.csv を読む。
+          WATCHLIST_URL: ${{ vars.WATCHLIST_URL }}
+        run: node build.mjs
+
+      - name: 変更があればコミット
+        run: |
+          git config user.name  "kabu-watch"
+          git config user.email "actions@github.com"
+          git add docs/index.html
+          git diff --staged --quiet || git commit -m "更新 $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M')"
+          git push
