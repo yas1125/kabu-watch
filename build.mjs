@@ -216,12 +216,58 @@ function renderRow(m, order) {
 </div>`;
 }
 
+// 保有銘柄をまとめた1行。株数を持っていないので、加重ではなく単純平均。
+function buildTotal(metrics) {
+  const held = metrics.filter((m) => m.kind === "hold");
+  if (held.length < 2) return null;
+
+  const avg = (values) => {
+    const vs = values.filter((v) => v != null);
+    return vs.length ? vs.reduce((a, b) => a + b, 0) / vs.length : null;
+  };
+
+  // 5営業日ぶんは、銘柄ごとに日付がずれることがあるので日付でそろえてから平均する。
+  const byDate = new Map();
+  for (const m of held) {
+    for (const r of m.recent) {
+      if (!byDate.has(r.date)) byDate.set(r.date, []);
+      byDate.get(r.date).push(r.change);
+    }
+  }
+  const recent = [...byDate.entries()]
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .slice(-5)
+    .map(([date, changes]) => ({ date, change: avg(changes) }));
+
+  return {
+    count: held.length,
+    up: held.filter((m) => m.day > 0).length,
+    down: held.filter((m) => m.day < 0).length,
+    day: avg(held.map((m) => m.day)),
+    week: avg(held.map((m) => m.week)),
+    month: avg(held.map((m) => m.month)),
+    base: avg(held.map((m) => m.base)),
+    recent,
+  };
+}
+
+function renderTotal(t) {
+  if (!t) return "";
+  return `<div class="row total">
+  <div class="name">全体</div>
+  <div class="code">保有${t.count}銘柄の平均</div>
+  <div class="tagwrap"><span class="count"><b class="up">${t.up}</b>↑ <b class="down">${t.down}</b>↓</span></div>
+  <div class="today"><span class="lead ${dirOf(t.day)}" data-day="${fmtPct(t.day)}" data-week="${fmtPct(t.week)}" data-month="${fmtPct(t.month)}"
+     data-day-dir="${dirOf(t.day)}" data-week-dir="${dirOf(t.week)}" data-month-dir="${dirOf(t.month)}">${fmtPct(t.day)}</span></div>
+  ${renderBars(t.recent)}
+  <div class="base"><span class="${dirOf(t.base)}">${fmtPct(t.base)}</span></div>
+</div>`;
+}
+
 function renderSection(title, items) {
   if (!items.length) return "";
   const rows = items.map(renderRow).join("");
-  const head = `<div class="head"><span>銘柄</span><span>直近</span><span>株価・前日比</span>
-    <span>5日</span><span>基準比</span></div>`;
-  return `<div class="group"><h2 class="section">${title}<span>${items.length}</span></h2>${head}${rows}</div>`;
+  return `<div class="group"><h2 class="section">${title}<span>${items.length}</span></h2>${rows}</div>`;
 }
 
 function renderPage(metrics, errors) {
@@ -291,7 +337,15 @@ header{position:sticky;top:0;background:var(--bg);padding:14px 0 10px;border-bot
   grid-template-columns:minmax(0,1fr) 54px 62px 46px 62px}
 .row{row-gap:1px;padding:8px 2px;border-top:.5px solid var(--line);cursor:pointer}
 .row:focus{outline:none}
-.head{padding:6px 2px 4px;font-size:10px;color:var(--sub);border-top:.5px solid var(--line)}
+.head{margin-top:14px;padding:6px 2px 4px;font-size:10px;color:var(--sub)}
+.total{margin-bottom:4px;padding:10px 8px;border:none;border-radius:8px;
+  background:var(--card);cursor:default}
+.total .name{font-size:14px}
+.total .lead{font-size:16px}
+.total .base span{font-size:14px;font-weight:600}
+.count{font-size:11px;color:var(--sub);font-variant-numeric:tabular-nums}
+.count b{font-weight:600}
+.group .section{margin-top:14px}
 .head span:nth-child(n+3){text-align:right}
 .head span:nth-child(4){text-align:center}
 .name{grid-column:1;grid-row:1;font-size:13.5px;font-weight:600;
@@ -348,11 +402,14 @@ header{position:sticky;top:0;background:var(--bg);padding:14px 0 10px;border-bot
     <button data-sort="move" aria-pressed="false">変動が大きい順</button>
   </div>
 </header>
+<div class="head"><span>銘柄</span><span>直近</span><span>株価・前日比</span><span>5日</span><span>基準比</span></div>
+${renderTotal(buildTotal(metrics))}
 ${renderSection("保有", metrics.filter((m) => m.kind === "hold"))}
 ${renderSection("ウォッチ", metrics.filter((m) => m.kind === "watch"))}
 ${errBlock}
-<p class="foot">株価データ: Yahoo Finance（終値ベース）。棒の高さは日次±${BAR_FULL_SCALE}%で頭打ち。<br>
-基準日が空欄の銘柄は年初来で計算しています。</p>
+<p class="foot">「全体」は保有銘柄の単純平均です。保有株数を登録していないため、
+銘柄ごとの投資額の重みは反映されていません。<br>
+株価データ: Yahoo Finance。棒の高さは日次±${BAR_FULL_SCALE}%で頭打ち。</p>
 </div>
 <script>
 document.querySelectorAll(".row").forEach(row => {
