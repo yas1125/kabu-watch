@@ -200,12 +200,13 @@ function renderRow(m, order) {
   return `<div class="row" tabindex="0" data-order="${order}"
      data-v-day="${sortKey(m.day)}" data-v-week="${sortKey(m.week)}" data-v-month="${sortKey(m.month)}">
   <div class="name">${esc(m.name)}</div>
-  <div class="sub">${esc(sub)}${comment ? `<b class="tag">${comment}</b>` : ""}</div>
-  ${renderBars(m.recent)}
-  <div class="top"><span class="price">${fmtPrice(m.price)}円</span>
+  <div class="code">${esc(sub)}</div>
+  <div class="tagwrap">${comment ? `<b class="tag">${comment}</b>` : ""}</div>
+  <div class="today"><span class="price">${fmtPrice(m.price)}円</span>
     <span class="lead ${dirOf(m.day)}" data-day="${fmtPct(m.day)}" data-week="${fmtPct(m.week)}" data-month="${fmtPct(m.month)}"
        data-day-dir="${dirOf(m.day)}" data-week-dir="${dirOf(m.week)}" data-month-dir="${dirOf(m.month)}">${fmtPct(m.day)}</span></div>
-  <div class="bot">基準 <span class="${baseDir}">${fmtYen(m.baseDiff)}</span>
+  ${renderBars(m.recent)}
+  <div class="base"><span class="${baseDir}">${fmtYen(m.baseDiff)}</span>
     <span class="${baseDir}">${fmtPct(m.base)}</span></div>
   <div class="detail">
     <div class="daily">${nums}</div>
@@ -218,7 +219,9 @@ function renderRow(m, order) {
 function renderSection(title, items) {
   if (!items.length) return "";
   const rows = items.map(renderRow).join("");
-  return `<div class="group"><h2 class="section">${title}<span>${items.length}</span></h2>${rows}</div>`;
+  const head = `<div class="head"><span>銘柄</span><span>直近</span><span>株価・前日比</span>
+    <span>5日</span><span>基準比</span></div>`;
+  return `<div class="group"><h2 class="section">${title}<span>${items.length}</span></h2>${head}${rows}</div>`;
 }
 
 function renderPage(metrics, errors) {
@@ -282,28 +285,44 @@ header{position:sticky;top:0;background:var(--bg);padding:14px 0 10px;border-bot
 .section{display:flex;align-items:center;gap:7px;margin:18px 0 0;padding-bottom:5px;
   font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--sub)}
 .section span{font-weight:400;opacity:.7}
-.row{display:grid;grid-template-columns:minmax(0,1fr) 54px 112px;column-gap:8px;row-gap:1px;
-  padding:9px 2px;border-top:.5px solid var(--line);cursor:pointer}
+/* 左から 銘柄 → 直近の動き → 株価と前日比 → 5日の棒 → 基準日比 の順に読ませる。
+   金額の下に％を重ねることで、狭い画面でも横1列の並びを保っている。 */
+.row,.head{display:grid;column-gap:6px;
+  grid-template-columns:minmax(0,1fr) 54px 62px 46px 62px}
+.row{row-gap:1px;padding:8px 2px;border-top:.5px solid var(--line);cursor:pointer}
 .row:focus{outline:none}
-.name{grid-column:1;grid-row:1;font-size:14px;font-weight:600;
+.head{padding:6px 2px 4px;font-size:10px;color:var(--sub);border-top:.5px solid var(--line)}
+.head span:nth-child(n+3){text-align:right}
+.head span:nth-child(4){text-align:center}
+.name{grid-column:1;grid-row:1;font-size:13.5px;font-weight:600;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sub{grid-column:1;grid-row:2;font-size:11px;color:var(--sub);
+.code{grid-column:1;grid-row:2;font-size:11px;color:var(--sub);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tag{margin-left:6px;padding:1px 6px;border-radius:20px;font-weight:400;
-  color:var(--text);background:var(--card);border:.5px solid var(--line)}
-.bars{grid-column:2;grid-row:1/3;align-self:center;display:flex;align-items:center;gap:3px;height:32px;
+.tagwrap{grid-column:2;grid-row:1/3;align-self:center}
+.tag{display:inline-block;padding:2px 5px;border-radius:4px;font-size:10.5px;font-weight:400;
+  color:var(--text);background:var(--card);border:.5px solid var(--line);white-space:nowrap}
+.today,.base{grid-row:1/3;align-self:center;display:flex;flex-direction:column;
+  align-items:flex-end;font-variant-numeric:tabular-nums;white-space:nowrap;line-height:1.35}
+.today{grid-column:3}
+.base{grid-column:5}
+.price{font-size:11.5px;color:var(--sub)}
+.lead{font-size:13.5px;font-weight:600}
+.base span:first-child{font-size:11.5px}
+.base span:last-child{font-size:12.5px;font-weight:600}
+.bars{grid-column:4;grid-row:1/3;align-self:center;display:flex;align-items:center;gap:2px;height:30px;
   background:linear-gradient(var(--sub),var(--sub)) left 50%/100% .5px no-repeat;opacity:.95}
-.bar{display:block;width:8px;border-radius:1px}
-.bar.up{background:var(--up);align-self:flex-end;margin-bottom:16px}
-.bar.down{background:var(--down);align-self:flex-start;margin-top:16px}
-.top{grid-column:3;grid-row:1;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-.bot{grid-column:3;grid-row:2;text-align:right;font-size:10.5px;color:var(--sub);
-  font-variant-numeric:tabular-nums;white-space:nowrap}
-.price{font-size:12px;color:var(--sub)}
-.lead{margin-left:5px;font-size:14px;font-weight:600}
-.bot span{margin-left:4px}
+.bar{display:block;width:7px;border-radius:1px}
+.bar.up{background:var(--up);align-self:flex-end;margin-bottom:15px}
+.bar.down{background:var(--down);align-self:flex-start;margin-top:15px}
 .up{color:var(--up)} .down{color:var(--down)} .flat{color:var(--flat)}
 .detail{display:none;grid-column:1/-1;padding:3px 0 2px}
+/* 画面に余裕があるときは各列を広げ、右端の余白は最後の列に逃がす */
+@media (min-width:520px){
+  .row,.head{grid-template-columns:minmax(0,168px) 76px 88px 60px 88px 1fr;column-gap:12px}
+  .name{font-size:15px}
+  .bar{width:9px}
+  .bars{gap:3px}
+}
 .row.open .detail{display:block}
 .daily{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:12px;font-variant-numeric:tabular-nums}
 .meta{margin-top:5px;font-size:11px;color:var(--sub)}
