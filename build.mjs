@@ -230,6 +230,13 @@ function renderPage(metrics, errors) {
     timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit",
   });
 
+  // 取引時間中に生成した場合、最新の値はまだ終値ではないので言い方を変える。
+  const jst = new Date(Date.now() + 9 * 3600 * 1000);
+  const duringSession =
+    asOf === jst.toISOString().slice(0, 10) &&
+    jst.getUTCHours() * 60 + jst.getUTCMinutes() < 15 * 60 + 30;
+  const priceLabel = duringSession ? "現在値（取引時間中）" : "終値";
+
   const errBlock = errors.length
     ? `<div class="errors">取得できませんでした： ${errors.map((e) => esc(`${e.code}（${e.message}）`)).join(" / ")}</div>`
     : "";
@@ -309,7 +316,7 @@ header{position:sticky;top:0;background:var(--bg);padding:14px 0 10px;border-bot
 <body>
 <div class="wrap">
 <header>
-  <div class="asof"><b>${asOf} 終値</b><time>${updated} 更新</time></div>
+  <div class="asof"><b>${asOf} ${priceLabel}</b><time>${updated} 更新</time></div>
   <div class="legend">基準日 ${baseLabel}　／　棒＝直近5営業日 ${spanLabel}
     <i class="up">■</i>上昇 <i class="down">■</i>下落　／　行をタップで内訳</div>
   <div class="tabs">
