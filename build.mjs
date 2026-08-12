@@ -13,6 +13,10 @@ const OUT_PATH = join(ROOT, "docs", "index.html");
 // 棒グラフの高さ上限に対応する日次騰落率。これを超える日は頭打ちで描く。
 const BAR_FULL_SCALE = 3.0;
 
+// 基準日。watchlist.csv の基準日が空欄の銘柄は、この日の終値と比較する。
+// 全銘柄の基準をまとめて変えたいときは、ここを書き換える。
+const DEFAULT_BASE_DATE = "2026-08-03";
+
 // ---- CSV ----------------------------------------------------------------
 
 function parseCsv(text) {
@@ -110,9 +114,7 @@ function buildMetrics(item, series) {
   const last = closes.at(-1);
   const at = (backFromEnd) => closes.at(-1 - backFromEnd) ?? null;
 
-  // 基準日が空欄なら年初来。
-  const baseDate = item.baseDate || `${last.date.slice(0, 4)}-01-01`;
-  const base = closeOnOrBefore(closes, baseDate) ?? closes[0];
+  const base = closeOnOrBefore(closes, item.baseDate || DEFAULT_BASE_DATE) ?? closes[0];
   const month = closeOnOrBefore(closes, shiftMonths(last.date, -1));
 
   // 直近5営業日ぶんの日次騰落率。
@@ -131,9 +133,36 @@ function buildMetrics(item, series) {
     week: at(5) ? pct(last.close, at(5).close) : null,
     month: month ? pct(last.close, month.close) : null,
     base: pct(last.close, base.close),
+    baseDiff: last.close - base.close,
+    basePrice: base.close,
     baseDate: base.date,
     recent,
   };
+}
+
+// 直近の値動きを一言で言い換える。値動きの説明のみで、良し悪しの判断は含めない。
+function commentOf(recent, day) {
+  if (day == null) return "";
+  if (day >= 5) return "急騰";
+  if (day <= -5) return "急落";
+
+  const changes = recent.map((r) => r.change);
+  const latest = changes.at(-1);
+  if (latest == null) return "";
+  if (latest === 0) return "変わらず";
+
+  let run = 1;
+  for (let i = changes.length - 2; i >= 0; i--) {
+    if (Math.sign(changes[i]) !== Math.sign(latest)) break;
+    run++;
+  }
+  if (run >= 3) return `${run}日${latest > 0 ? "続伸" : "続落"}`;
+  if (changes.every((c) => Math.abs(c) < 0.5)) return "小動き";
+
+  const prev = changes.at(-2);
+  if (prev != null && latest > 0 && prev < 0) return "反発";
+  if (prev != null && latest < 0 && prev > 0) return "反落";
+  return "";
 }
 
 // ---- HTML ---------------------------------------------------------------
@@ -142,6 +171,8 @@ const esc = (s) =>
   String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 const fmtPct = (v) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`);
+const fmtYen = (v) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}円`;
+const fmtPrice = (v) => v.toLocaleString("ja-JP", { maximumFractionDigits: 1 });
 const dirOf = (v) => (v == null ? "flat" : v > 0 ? "up" : v < 0 ? "down" : "flat");
 const mmdd = (iso) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
 
@@ -162,21 +193,24 @@ function renderRow(m, order) {
   const nums = m.recent
     .map((r) => `<span class="${dirOf(r.change)}">${mmdd(r.date)} ${fmtPct(r.change)}</span>`)
     .join("");
+  const comment = commentOf(m.recent, m.day);
   const sub = [m.code, m.memo].filter(Boolean).join(" ・ ");
+  const baseDir = dirOf(m.base);
 
   return `<div class="row" tabindex="0" data-order="${order}"
      data-v-day="${sortKey(m.day)}" data-v-week="${sortKey(m.week)}" data-v-month="${sortKey(m.month)}">
-  <div class="ident"><div class="name">${esc(m.name)}</div><div class="sub">${esc(sub)}</div></div>
+  <div class="name">${esc(m.name)}</div>
+  <div class="sub">${esc(sub)}${comment ? `<b class="tag">${comment}</b>` : ""}</div>
   ${renderBars(m.recent)}
-  <div class="nums">
-    <div class="lead ${dirOf(m.day)}" data-day="${fmtPct(m.day)}" data-week="${fmtPct(m.week)}" data-month="${fmtPct(m.month)}"
-         data-day-dir="${dirOf(m.day)}" data-week-dir="${dirOf(m.week)}" data-month-dir="${dirOf(m.month)}">${fmtPct(m.day)}</div>
-    <div class="sub">基準 <span class="${dirOf(m.base)}">${fmtPct(m.base)}</span></div>
-  </div>
+  <div class="top"><span class="price">${fmtPrice(m.price)}円</span>
+    <span class="lead ${dirOf(m.day)}" data-day="${fmtPct(m.day)}" data-week="${fmtPct(m.week)}" data-month="${fmtPct(m.month)}"
+       data-day-dir="${dirOf(m.day)}" data-week-dir="${dirOf(m.week)}" data-month-dir="${dirOf(m.month)}">${fmtPct(m.day)}</span></div>
+  <div class="bot">基準 <span class="${baseDir}">${fmtYen(m.baseDiff)}</span>
+    <span class="${baseDir}">${fmtPct(m.base)}</span></div>
   <div class="detail">
     <div class="daily">${nums}</div>
-    <div class="meta">${m.price.toLocaleString("ja-JP")}円 ・ 基準日 ${m.baseDate}
-      ・ <a href="https://finance.yahoo.co.jp/quote/${esc(m.code)}.T" target="_blank" rel="noopener">詳細</a></div>
+    <div class="meta">基準日 ${m.baseDate} の終値 ${fmtPrice(m.basePrice)}円
+      ・ <a href="https://finance.yahoo.co.jp/quote/${esc(m.code)}.T" target="_blank" rel="noopener">Yahooで詳細</a></div>
   </div>
 </div>`;
 }
@@ -191,6 +225,7 @@ function renderPage(metrics, errors) {
   const asOf = metrics[0]?.lastDate ?? "";
   const span = metrics[0]?.recent ?? [];
   const spanLabel = span.length ? `${mmdd(span[0].date)} → ${mmdd(span.at(-1).date)}` : "";
+  const baseLabel = metrics[0] ? mmdd(metrics[0].baseDate) : "";
   const updated = new Date().toLocaleString("ja-JP", {
     timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit",
   });
@@ -240,22 +275,28 @@ header{position:sticky;top:0;background:var(--bg);padding:14px 0 10px;border-bot
 .section{display:flex;align-items:center;gap:7px;margin:18px 0 0;padding-bottom:5px;
   font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--sub)}
 .section span{font-weight:400;opacity:.7}
-.row{display:grid;grid-template-columns:1fr 58px 78px;align-items:center;gap:10px;
-  padding:10px 2px;border-top:.5px solid var(--line);cursor:pointer}
+.row{display:grid;grid-template-columns:minmax(0,1fr) 54px 112px;column-gap:8px;row-gap:1px;
+  padding:9px 2px;border-top:.5px solid var(--line);cursor:pointer}
 .row:focus{outline:none}
-.ident{min-width:0}
-.name{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sub{font-size:11px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bars{display:flex;align-items:center;gap:3px;height:32px;
+.name{grid-column:1;grid-row:1;font-size:14px;font-weight:600;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sub{grid-column:1;grid-row:2;font-size:11px;color:var(--sub);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tag{margin-left:6px;padding:1px 6px;border-radius:20px;font-weight:400;
+  color:var(--text);background:var(--card);border:.5px solid var(--line)}
+.bars{grid-column:2;grid-row:1/3;align-self:center;display:flex;align-items:center;gap:3px;height:32px;
   background:linear-gradient(var(--sub),var(--sub)) left 50%/100% .5px no-repeat;opacity:.95}
 .bar{display:block;width:8px;border-radius:1px}
 .bar.up{background:var(--up);align-self:flex-end;margin-bottom:16px}
 .bar.down{background:var(--down);align-self:flex-start;margin-top:16px}
-.nums{text-align:right}
-.lead{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
-.nums .sub{font-variant-numeric:tabular-nums}
+.top{grid-column:3;grid-row:1;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bot{grid-column:3;grid-row:2;text-align:right;font-size:10.5px;color:var(--sub);
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.price{font-size:12px;color:var(--sub)}
+.lead{margin-left:5px;font-size:14px;font-weight:600}
+.bot span{margin-left:4px}
 .up{color:var(--up)} .down{color:var(--down)} .flat{color:var(--flat)}
-.detail{display:none;grid-column:1/-1;padding:2px 0 4px}
+.detail{display:none;grid-column:1/-1;padding:3px 0 2px}
 .row.open .detail{display:block}
 .daily{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:12px;font-variant-numeric:tabular-nums}
 .meta{margin-top:5px;font-size:11px;color:var(--sub)}
@@ -269,7 +310,8 @@ header{position:sticky;top:0;background:var(--bg);padding:14px 0 10px;border-bot
 <div class="wrap">
 <header>
   <div class="asof"><b>${asOf} 終値</b><time>${updated} 更新</time></div>
-  <div class="legend">棒＝直近5営業日 ${spanLabel}　<i class="up">■</i> 上昇　<i class="down">■</i> 下落　／　行をタップで内訳</div>
+  <div class="legend">基準日 ${baseLabel}　／　棒＝直近5営業日 ${spanLabel}
+    <i class="up">■</i>上昇 <i class="down">■</i>下落　／　行をタップで内訳</div>
   <div class="tabs">
     <button data-key="day" aria-pressed="true">前日比</button>
     <button data-key="week" aria-pressed="false">1週</button>
